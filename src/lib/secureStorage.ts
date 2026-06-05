@@ -216,12 +216,14 @@ export function exportAsCSV(config: MasterSimulatorConfig): void {
 
   // Income Streams
   rows.push(['ACCUMULATION INCOME STREAMS']);
-  rows.push(['Description', 'Type', 'Currency', 'Amount', 'Start', 'End']);
+  rows.push(['Description', 'Type', 'Currency', 'Amount', 'Step-Up %/yr', 'Start', 'End', 'Bucket']);
   for (const s of config.incomeStreams ?? []) {
-    const amtLabel = s.frequency === 'recurring' ? `${s.amount.toLocaleString()}/mo` : s.amount.toLocaleString();
-    const start    = `${s.startMonth.toString().padStart(2, '0')}/${s.startYear}`;
-    const end      = s.frequency === 'one_time' ? start : `${s.endMonth.toString().padStart(2, '0')}/${s.endYear}`;
-    rows.push([s.description, s.frequency === 'recurring' ? 'Recurring' : 'One-Time', s.currency, amtLabel, start, end]);
+    const amtLabel  = s.frequency === 'recurring' ? `${s.amount.toLocaleString()}/mo` : s.amount.toLocaleString();
+    const stepUpStr = s.frequency === 'recurring' && (s.annualStepUp ?? 0) > 0
+      ? `${((s.annualStepUp ?? 0) * 100).toFixed(1)}%` : '0%';
+    const start     = `${s.startMonth.toString().padStart(2, '0')}/${s.startYear}`;
+    const end       = s.frequency === 'one_time' ? start : `${s.endMonth.toString().padStart(2, '0')}/${s.endYear}`;
+    rows.push([s.description, s.frequency === 'recurring' ? 'Recurring' : 'One-Time', s.currency, amtLabel, stepUpStr, start, end, s.bucket ?? 'auto']);
   }
   rows.push([]);
 

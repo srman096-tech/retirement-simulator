@@ -184,15 +184,17 @@ export default function MilestonesTab({ config, onUpdate, themePrimaryColor }: P
       incomeStreams: [
         ...incomeStreams,
         {
-          id: `inc${Date.now()}`,
+          id:           `inc${Date.now()}`,
           description:  'Monthly SIP / Savings',
           frequency:    'recurring',
           currency:     baseCurrency,
           amount:       10_000,
+          annualStepUp: 0,
           startMonth:   now.getMonth() + 1,
           startYear:    currentYear,
           endMonth:     12,
           endYear:      retirementYear,
+          bucket:       'auto',
         } satisfies IncomeStream,
       ],
     });
@@ -328,9 +330,16 @@ function IncomeStreamCard({ stream: s, config, currentYear, retirementYear, onUp
   const activeBucket = s.bucket ?? 'auto';
   const bktOptions   = incomeBucketOptions(strategy);
   const showBucket   = strategy !== '1_BUCKET';
+  const stepUp       = s.annualStepUp ?? 0;
+
+  // Projected amount at end year (after compounding step-up)
+  const yearsToEnd = Math.max(0, s.endYear - s.startYear);
+  const amountAtEnd = isRecurring && stepUp > 0
+    ? s.amount * Math.pow(1 + stepUp, yearsToEnd)
+    : s.amount;
 
   // Estimated annual contribution in base currency (for summary line)
-  const baseAmt = fxConvertWithOverrides(s.amount, s.currency, baseCurrency, config.fxOverrides ?? {}, baseCurrency);
+  const baseAmt   = fxConvertWithOverrides(s.amount, s.currency, baseCurrency, config.fxOverrides ?? {}, baseCurrency);
   const annualEst = isRecurring ? baseAmt * 12 : baseAmt;
   const isForeign = s.currency !== baseCurrency;
 
@@ -411,6 +420,41 @@ function IncomeStreamCard({ stream: s, config, currentYear, retirementYear, onUp
                 />
               </div>
             </div>
+
+            {/* Row 2b: Annual step-up — recurring only */}
+            {isRecurring && (
+              <div>
+                <Label className="text-[10px] text-slate-500">
+                  Annual Step-Up &nbsp;
+                  <span className="font-normal text-slate-400">(% increase per year · 0 = flat)</span>
+                </Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="relative flex-1">
+                    <Input
+                      type="number" min={0} max={50} step={0.5}
+                      value={stepUp === 0 ? '' : +(stepUp * 100).toFixed(2)}
+                      onChange={(e) => {
+                        const pct = parseFloat(e.target.value);
+                        onUpdate(s.id, { annualStepUp: isNaN(pct) ? 0 : pct / 100 });
+                      }}
+                      className="h-8 text-sm font-mono pr-8 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="0"
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 pointer-events-none">%</span>
+                  </div>
+                  {stepUp > 0 && (
+                    <div className="shrink-0 text-[10px] text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-2 py-1 whitespace-nowrap">
+                      {MONTHS[s.startMonth - 1]?.l}&nbsp;{s.startYear}:&nbsp;
+                      <span className="font-semibold text-slate-700">{formatCurrencyShort(s.amount, s.currency)}</span>
+                      &nbsp;→&nbsp;
+                      {MONTHS[s.endMonth - 1]?.l}&nbsp;{s.endYear}:&nbsp;
+                      <span className="font-semibold text-blue-600">{formatCurrencyShort(amountAtEnd, s.currency)}</span>
+                      <span className="text-slate-400">/mo</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Row 3: Start date */}
             <div className="grid grid-cols-2 gap-2">
@@ -510,8 +554,13 @@ function IncomeStreamCard({ stream: s, config, currentYear, retirementYear, onUp
                 <span>
                   {isRecurring ? (
                     <>
-                      +{formatCurrencyShort(s.amount, s.currency)}/mo ·
-                      est.&nbsp;{formatCurrencyShort(annualEst, s.currency)}/yr
+                      +{formatCurrencyShort(s.amount, s.currency)}/mo
+                      {stepUp > 0 && (
+                        <span className="ml-1 text-blue-500 font-medium">
+                          +{(stepUp * 100).toFixed(1)}%/yr
+                        </span>
+                      )}
+                      {' · '}est.&nbsp;{formatCurrencyShort(annualEst, s.currency)}/yr
                       {isForeign && (
                         <span className="text-slate-300 ml-1">
                           ≈ {formatCurrencyShort(fxConvertWithOverrides(annualEst, s.currency, baseCurrency, config.fxOverrides ?? {}, baseCurrency), baseCurrency)} in {baseCurrency}

@@ -90,6 +90,14 @@ export interface IncomeStream {
   /** Always equals startYear when frequency = 'one_time'. */
   endYear: number;
   /**
+   * Annual step-up (escalation) rate for recurring SIPs.
+   * 0 = flat amount throughout (default).
+   * 0.10 = amount grows 10 % each year from startYear onward.
+   * Ignored for one_time frequency.
+   * Backward-compatible: sessions without this field default to 0.
+   */
+  annualStepUp?: number;
+  /**
    * Which bucket the income deposits into.
    * 'auto' = growth bucket (equity-first, same as the pre-existing default).
    * Backward-compatible: sessions without this field default to 'auto'.

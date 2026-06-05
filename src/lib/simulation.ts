@@ -501,11 +501,19 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
         } else {
           if (calendarYear >= s.startYear && calendarYear <= s.endYear) {
             let months: number;
-            if (s.startYear === s.endYear)        months = Math.max(0, s.endMonth - s.startMonth + 1);
+            if (s.startYear === s.endYear)         months = Math.max(0, s.endMonth - s.startMonth + 1);
             else if (calendarYear === s.startYear) months = 13 - s.startMonth;
             else if (calendarYear === s.endYear)   months = s.endMonth;
             else                                   months = 12;
-            contrib = baseAmt * months;
+
+            // Annual step-up: amount compounds from startYear onward
+            const stepUp = s.annualStepUp ?? 0;
+            const yearsElapsedFromStart = calendarYear - s.startYear;
+            const effectiveMonthly = stepUp > 0
+              ? baseAmt * Math.pow(1 + stepUp, yearsElapsedFromStart)
+              : baseAmt;
+
+            contrib = effectiveMonthly * months;
           }
         }
         if (contrib > 0) {
