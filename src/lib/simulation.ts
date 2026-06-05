@@ -1,5 +1,6 @@
 import {
   MasterSimulatorConfig,
+  MilestoneBucket,
   StrategyType,
   SupportedCurrency,
   fxConvertWithOverrides,
@@ -202,6 +203,75 @@ function cascadeDraw(
 }
 
 /**
+ * Bucket-aware outflow draw.
+ *
+ * 'auto' → standard cascade (B1 → B2 → B3).
+ * 'b1'   → B1 first, then B2, then B3.
+ * 'b2'   → B2 first, then B3, then B1.
+ * 'b3'   → B3 first, then B2, then B1.
+ *
+ * Any shortfall after all available buckets are tapped is silently absorbed
+ * (buckets are clamped to 0 downstream).  For 1-bucket or 2-bucket strategies
+ * the b3/b2 preference falls back to the next available bucket.
+ */
+function drawFromBucket(
+  b1: number, b2: number, b3: number,
+  amount: number,
+  strategy: StrategyType,
+  bucket: MilestoneBucket,
+): [number, number, number] {
+  if (bucket === 'auto' || bucket === 'b1' || strategy === '1_BUCKET') {
+    return cascadeDraw(b1, b2, b3, amount, strategy);
+  }
+
+  let rem = amount;
+
+  if (bucket === 'b3') {
+    // Equity → Debt → Cash
+    if (strategy === '3_BUCKET') {
+      const t3 = Math.min(b3, rem); b3 -= t3; rem -= t3;
+    }
+    if (rem > 0) { const t2 = Math.min(b2, rem); b2 -= t2; rem -= t2; }
+    if (rem > 0) { const t1 = Math.min(b1, rem); b1 -= t1; }
+  } else {
+    // bucket === 'b2': Debt → Equity → Cash
+    const t2 = Math.min(b2, rem); b2 -= t2; rem -= t2;
+    if (rem > 0 && strategy === '3_BUCKET') {
+      const t3 = Math.min(b3, rem); b3 -= t3; rem -= t3;
+    }
+    if (rem > 0) { const t1 = Math.min(b1, rem); b1 -= t1; }
+  }
+
+  return [b1, b2, b3];
+}
+
+/**
+ * Bucket-aware inflow deposit.
+ *
+ * 'auto' → B1 (most liquid, consistent with prior behaviour).
+ * 'b1'   → B1  |  'b2' → B2  |  'b3' → B3
+ *
+ * 2-bucket: b3 preference is treated as b2 (no separate equity bucket exists).
+ * 1-bucket: always deposits to b1.
+ */
+function depositToBucket(
+  b1: number, b2: number, b3: number,
+  amount: number,
+  strategy: StrategyType,
+  bucket: MilestoneBucket,
+): [number, number, number] {
+  if (strategy === '1_BUCKET' || bucket === 'auto' || bucket === 'b1') {
+    b1 += amount;
+  } else if (bucket === 'b3' && strategy === '3_BUCKET') {
+    b3 += amount;
+  } else {
+    // b2, or b3-on-2-bucket → B2 (growth)
+    b2 += amount;
+  }
+  return [b1, b2, b3];
+}
+
+/**
  * Grow each bucket by its effective annual return.
  * safetyCashFrac / safetyDebtFrac are pre-computed from initial asset proportions
  * and used each year to blend the 2-bucket safety rate dynamically.
@@ -393,11 +463,11 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
 
       for (const m of outflows) {
         const amt = toBase(m); annualOutflow += amt;
-        [b1, b2, b3] = cascadeDraw(b1, b2, b3, amt, strategy);
+        [b1, b2, b3] = drawFromBucket(b1, b2, b3, amt, strategy, m.bucket ?? 'auto');
       }
       for (const m of inflows) {
         const amt = toBase(m); annualInflow += amt;
-        b1 += amt; // milestone inflows land in the most-liquid bucket
+        [b1, b2, b3] = depositToBucket(b1, b2, b3, amt, strategy, m.bucket ?? 'auto');
       }
 
       // Regular income / savings contributions → growth bucket
@@ -414,16 +484,16 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
       // ── POST-RETIREMENT ─────────────────────────────────────────────
       annualExpense = annualExpenseAtAge(age, cfg);
 
-      // Step 1 — Inflows
+      // Step 1 — Inflows (to user-specified bucket)
       for (const m of inflows) {
         const amt = toBase(m); annualInflow += amt;
-        b1 += amt;
+        [b1, b2, b3] = depositToBucket(b1, b2, b3, amt, strategy, m.bucket ?? 'auto');
       }
 
-      // Step 2 — Milestone outflows
+      // Step 2 — Milestone outflows (from user-specified bucket, with fallthrough)
       for (const m of outflows) {
         const amt = toBase(m); annualOutflow += amt;
-        [b1, b2, b3] = cascadeDraw(b1, b2, b3, amt, strategy);
+        [b1, b2, b3] = drawFromBucket(b1, b2, b3, amt, strategy, m.bucket ?? 'auto');
       }
 
       // Step 3 — Living expenses (cascade from B1)

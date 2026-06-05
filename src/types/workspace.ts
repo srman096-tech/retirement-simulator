@@ -46,6 +46,15 @@ export type AssetClass         = 'Equity' | 'Debt' | 'Cash';
 export type MilestoneDirection = 'inflow' | 'outflow';
 export type IncomeFrequency    = 'one_time' | 'recurring';
 
+/**
+ * Which bucket an outflow draws from (priority order) or an inflow lands in.
+ *   'auto'  – outflow: cascade B1→B2→B3 (default); inflow: B1 (most liquid)
+ *   'b1'    – Cash (3-bucket) | Safety/Cash+Debt (2-bucket) | whole portfolio (1-bucket)
+ *   'b2'    – Debt (3-bucket) | Growth/Equity (2-bucket)
+ *   'b3'    – Equity (3-bucket only)
+ */
+export type MilestoneBucket = 'auto' | 'b1' | 'b2' | 'b3';
+
 // ── Income Streams (accumulation phase) ──────────────────────────────────────
 /**
  * Represents a source of income or savings contribution during the accumulation
@@ -147,6 +156,11 @@ export interface MultiCurrencyMilestone {
   currency: SupportedCurrency;
   amountRequired: number; // stored in native currency
   direction: MilestoneDirection;
+  /**
+   * Bucket preference for this event.  Defaults to 'auto' when absent
+   * (backward-compatible with sessions saved before this field existed).
+   */
+  bucket?: MilestoneBucket;
 }
 
 // ── Master configuration ──────────────────────────────────────────────────────
@@ -304,8 +318,8 @@ export const initialConfig: MasterSimulatorConfig = {
   ],
 
   milestones: [
-    { id: 'm1', description: 'Capital Event (Outflow)', targetAge: 58, currency: 'INR', amountRequired: 2_000_000, direction: 'outflow' },
-    { id: 'm2', description: 'Pension / Inflow',        targetAge: 60, currency: 'INR', amountRequired: 2_000_000, direction: 'inflow'  },
+    { id: 'm1', description: 'Capital Event (Outflow)', targetAge: 58, currency: 'INR', amountRequired: 2_000_000, direction: 'outflow', bucket: 'auto' },
+    { id: 'm2', description: 'Pension / Inflow',        targetAge: 60, currency: 'INR', amountRequired: 2_000_000, direction: 'inflow',  bucket: 'auto' },
   ],
 
   incomeStreams: [],

@@ -5,7 +5,9 @@ import {
   MultiCurrencyMilestone,
   IncomeStream,
   IncomeFrequency,
+  MilestoneBucket,
   MilestoneDirection,
+  StrategyType,
   SupportedCurrency,
   CURRENCY_LABELS,
   fxConvertWithOverrides,
@@ -30,6 +32,40 @@ const MONTHS = [
   { v: 7, l: 'Jul' }, { v: 8, l: 'Aug' }, { v: 9, l: 'Sep' },
   { v: 10, l: 'Oct' }, { v: 11, l: 'Nov' }, { v: 12, l: 'Dec' },
 ];
+
+// ── Bucket helpers ────────────────────────────────────────────────────────────
+
+interface BucketOption { value: MilestoneBucket; label: string }
+
+/** Returns the bucket options relevant to the current strategy. */
+function bucketOptions(strategy: StrategyType, direction: MilestoneDirection): BucketOption[] {
+  const verb = direction === 'outflow' ? 'Draw from' : 'Deposit to';
+  const base: BucketOption[] = [
+    { value: 'auto', label: direction === 'outflow' ? 'Auto (cascade)' : 'Auto (liquid)' },
+  ];
+  if (strategy === '1_BUCKET') return base; // nothing to choose
+  if (strategy === '2_BUCKET') return [
+    ...base,
+    { value: 'b1', label: `${verb} Safety (Cash + Debt)` },
+    { value: 'b2', label: `${verb} Growth (Equity)` },
+  ];
+  // 3-bucket
+  return [
+    ...base,
+    { value: 'b1', label: `${verb} Cash (B1)` },
+    { value: 'b2', label: `${verb} Debt (B2)` },
+    { value: 'b3', label: `${verb} Equity (B3)` },
+  ];
+}
+
+/** Short display label for the selected bucket (used in summary strip). */
+function bucketShortLabel(bucket: MilestoneBucket, strategy: StrategyType): string {
+  if (bucket === 'auto') return 'Auto';
+  if (strategy === '1_BUCKET') return 'Portfolio';
+  if (strategy === '2_BUCKET') return bucket === 'b1' ? 'Safety' : 'Growth';
+  const map: Record<MilestoneBucket, string> = { auto: '', b1: 'Cash', b2: 'Debt', b3: 'Equity' };
+  return map[bucket];
+}
 
 /** Returns true when the end date is strictly earlier than the start date. */
 function isEndBeforeStart(s: IncomeStream): boolean {
@@ -88,6 +124,7 @@ export default function MilestonesTab({ config, onUpdate, themePrimaryColor }: P
           currency:    baseCurrency,
           amountRequired: 1_000_000,
           direction,
+          bucket: 'auto' as MilestoneBucket,
         },
       ],
     });
@@ -469,7 +506,7 @@ function IncomeStreamCard({ stream: s, config, currentYear, retirementYear, onUp
   );
 }
 
-// ── MilestoneCard (unchanged) ─────────────────────────────────────────────────
+// ── MilestoneCard ─────────────────────────────────────────────────────────────
 
 interface CardProps {
   m: MultiCurrencyMilestone;
@@ -479,12 +516,16 @@ interface CardProps {
 }
 
 function MilestoneCard({ m, config, onUpdate, onRemove }: CardProps) {
-  const { baseCurrency } = config;
+  const { baseCurrency, strategy } = config;
   const isInflow  = m.direction === 'inflow';
   const accent    = isInflow ? 'border-green-200 bg-green-50/30' : 'border-red-100 bg-red-50/20';
   const phase     = m.targetAge < config.retirementAge ? 'Pre-retirement' : 'Post-retirement';
   const baseValue = fxConvertWithOverrides(m.amountRequired, m.currency, baseCurrency, config.fxOverrides ?? {}, baseCurrency);
   const isForeign = m.currency !== baseCurrency;
+
+  const activeBucket  = m.bucket ?? 'auto';
+  const bktOptions    = bucketOptions(strategy, m.direction);
+  const showBucket    = strategy !== '1_BUCKET'; // 1-bucket has only one bucket
 
   return (
     <Card className={`border ${accent}`}>
@@ -492,6 +533,7 @@ function MilestoneCard({ m, config, onUpdate, onRemove }: CardProps) {
         <div className="flex items-start gap-2">
           <div className="flex-1 space-y-3 min-w-0">
 
+            {/* Description */}
             <div>
               <Label className="text-[10px] text-slate-500">Description</Label>
               <Input
@@ -502,6 +544,7 @@ function MilestoneCard({ m, config, onUpdate, onRemove }: CardProps) {
               />
             </div>
 
+            {/* Age + Currency + Amount */}
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label className="text-[10px] text-slate-500">Target Age</Label>
@@ -541,6 +584,31 @@ function MilestoneCard({ m, config, onUpdate, onRemove }: CardProps) {
               </div>
             </div>
 
+            {/* Bucket selector — hidden for 1-bucket strategy */}
+            {showBucket && (
+              <div>
+                <Label className="text-[10px] text-slate-500">
+                  {isInflow ? 'Deposit to Bucket' : 'Draw from Bucket'}
+                </Label>
+                <Select
+                  value={activeBucket}
+                  onValueChange={(v) => v && onUpdate(m.id, { bucket: v as MilestoneBucket })}
+                >
+                  <SelectTrigger className="mt-1 h-8 text-xs w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {bktOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Summary strip */}
             <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-slate-400">
               <span>
                 {isInflow ? '+' : '−'} {formatCurrencyShort(m.amountRequired, m.currency)} at age {m.targetAge}
@@ -550,12 +618,24 @@ function MilestoneCard({ m, config, onUpdate, onRemove }: CardProps) {
                   </span>
                 )}
               </span>
-              <span
-                className="px-1.5 py-0.5 rounded font-medium"
-                style={{ backgroundColor: `${isInflow ? '#22c55e' : '#ef4444'}18`, color: isInflow ? '#16a34a' : '#dc2626' }}
-              >
-                {phase}
-              </span>
+              <div className="flex items-center gap-1">
+                {/* Bucket badge */}
+                {showBucket && (
+                  <span className={[
+                    'px-1.5 py-0.5 rounded font-medium',
+                    isInflow ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500',
+                  ].join(' ')}>
+                    {isInflow ? '→' : '←'} {bucketShortLabel(activeBucket, strategy)}
+                  </span>
+                )}
+                {/* Pre/post-retirement badge */}
+                <span
+                  className="px-1.5 py-0.5 rounded font-medium"
+                  style={{ backgroundColor: `${isInflow ? '#22c55e' : '#ef4444'}18`, color: isInflow ? '#16a34a' : '#dc2626' }}
+                >
+                  {phase}
+                </span>
+              </div>
             </div>
           </div>
 
