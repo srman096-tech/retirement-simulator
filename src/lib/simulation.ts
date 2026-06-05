@@ -246,12 +246,12 @@ function drawFromBucket(
 }
 
 /**
- * Bucket-aware inflow deposit.
+ * Bucket-aware inflow deposit for **milestone** events.
  *
- * 'auto' → B1 (most liquid, consistent with prior behaviour).
+ * 'auto' → B1 (most liquid — pension lump sums, property proceeds, etc.).
  * 'b1'   → B1  |  'b2' → B2  |  'b3' → B3
  *
- * 2-bucket: b3 preference is treated as b2 (no separate equity bucket exists).
+ * 2-bucket: b3 preference collapses to b2 (no separate equity bucket).
  * 1-bucket: always deposits to b1.
  */
 function depositToBucket(
@@ -265,10 +265,29 @@ function depositToBucket(
   } else if (bucket === 'b3' && strategy === '3_BUCKET') {
     b3 += amount;
   } else {
-    // b2, or b3-on-2-bucket → B2 (growth)
-    b2 += amount;
+    b2 += amount;  // b2, or b3-on-2-bucket → B2
   }
   return [b1, b2, b3];
+}
+
+/**
+ * Bucket-aware deposit for **income streams** (SIP, salary savings, etc.).
+ *
+ * 'auto' → growth bucket (equity-first intent of systematic savings):
+ *           3-bucket → B3 | 2-bucket → B2 | 1-bucket → B1
+ * 'b1'   → B1  |  'b2' → B2  |  'b3' → B3 (3-bucket only, else B2)
+ */
+function depositToIncomeBucket(
+  b1: number, b2: number, b3: number,
+  amount: number,
+  strategy: StrategyType,
+  bucket: MilestoneBucket | undefined,
+): [number, number, number] {
+  // Resolve 'auto' to the growth bucket for income/SIP
+  const effective: MilestoneBucket = (!bucket || bucket === 'auto')
+    ? (strategy === '3_BUCKET' ? 'b3' : strategy === '2_BUCKET' ? 'b2' : 'b1')
+    : bucket;
+  return depositToBucket(b1, b2, b3, amount, strategy, effective);
 }
 
 /**
@@ -470,14 +489,29 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
         [b1, b2, b3] = depositToBucket(b1, b2, b3, amt, strategy, m.bucket ?? 'auto');
       }
 
-      // Regular income / savings contributions → growth bucket
-      const incomeContrib = computeIncomeForYear(calendarYear, cfg, baseCurrency as SupportedCurrency);
-      if (incomeContrib > 0) {
-        annualInflow += incomeContrib;
-        // Route new savings to highest-growth bucket
-        if (strategy === '3_BUCKET')      b3 += incomeContrib;
-        else if (strategy === '2_BUCKET') b2 += incomeContrib;
-        else                              b1 += incomeContrib;
+      // Regular income / savings contributions — each stream to its own bucket
+      for (const s of cfg.incomeStreams ?? []) {
+        const baseAmt = fxConvertWithOverrides(
+          s.amount, s.currency, baseCurrency as SupportedCurrency,
+          cfg.fxOverrides ?? {}, baseCurrency as SupportedCurrency,
+        );
+        let contrib = 0;
+        if (s.frequency === 'one_time') {
+          if (s.startYear === calendarYear) contrib = baseAmt;
+        } else {
+          if (calendarYear >= s.startYear && calendarYear <= s.endYear) {
+            let months: number;
+            if (s.startYear === s.endYear)        months = Math.max(0, s.endMonth - s.startMonth + 1);
+            else if (calendarYear === s.startYear) months = 13 - s.startMonth;
+            else if (calendarYear === s.endYear)   months = s.endMonth;
+            else                                   months = 12;
+            contrib = baseAmt * months;
+          }
+        }
+        if (contrib > 0) {
+          annualInflow += contrib;
+          [b1, b2, b3] = depositToIncomeBucket(b1, b2, b3, contrib, strategy, s.bucket);
+        }
       }
 
     } else {

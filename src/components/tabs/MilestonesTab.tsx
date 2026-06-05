@@ -37,19 +37,18 @@ const MONTHS = [
 
 interface BucketOption { value: MilestoneBucket; label: string }
 
-/** Returns the bucket options relevant to the current strategy. */
+/** Returns the bucket options for capital events (inflows / outflows). */
 function bucketOptions(strategy: StrategyType, direction: MilestoneDirection): BucketOption[] {
   const verb = direction === 'outflow' ? 'Draw from' : 'Deposit to';
   const base: BucketOption[] = [
     { value: 'auto', label: direction === 'outflow' ? 'Auto (cascade)' : 'Auto (liquid)' },
   ];
-  if (strategy === '1_BUCKET') return base; // nothing to choose
+  if (strategy === '1_BUCKET') return base;
   if (strategy === '2_BUCKET') return [
     ...base,
     { value: 'b1', label: `${verb} Safety (Cash + Debt)` },
     { value: 'b2', label: `${verb} Growth (Equity)` },
   ];
-  // 3-bucket
   return [
     ...base,
     { value: 'b1', label: `${verb} Cash (B1)` },
@@ -58,9 +57,32 @@ function bucketOptions(strategy: StrategyType, direction: MilestoneDirection): B
   ];
 }
 
+/** Returns the bucket options for income streams (deposit direction only). */
+function incomeBucketOptions(strategy: StrategyType): BucketOption[] {
+  const base: BucketOption[] = [
+    { value: 'auto', label: 'Auto (growth / equity)' },
+  ];
+  if (strategy === '1_BUCKET') return base;
+  if (strategy === '2_BUCKET') return [
+    ...base,
+    { value: 'b1', label: 'Deposit to Safety (Cash + Debt)' },
+    { value: 'b2', label: 'Deposit to Growth (Equity)' },
+  ];
+  return [
+    ...base,
+    { value: 'b1', label: 'Deposit to Cash (B1)' },
+    { value: 'b2', label: 'Deposit to Debt (B2)' },
+    { value: 'b3', label: 'Deposit to Equity (B3)' },
+  ];
+}
+
 /** Short display label for the selected bucket (used in summary strip). */
-function bucketShortLabel(bucket: MilestoneBucket, strategy: StrategyType): string {
-  if (bucket === 'auto') return 'Auto';
+function bucketShortLabel(
+  bucket: MilestoneBucket,
+  strategy: StrategyType,
+  autoLabel = 'Auto',
+): string {
+  if (bucket === 'auto') return autoLabel;
   if (strategy === '1_BUCKET') return 'Portfolio';
   if (strategy === '2_BUCKET') return bucket === 'b1' ? 'Safety' : 'Growth';
   const map: Record<MilestoneBucket, string> = { auto: '', b1: 'Cash', b2: 'Debt', b3: 'Equity' };
@@ -300,9 +322,12 @@ interface IncomeCardProps {
 }
 
 function IncomeStreamCard({ stream: s, config, currentYear, retirementYear, onUpdate, onRemove }: IncomeCardProps) {
-  const { baseCurrency } = config;
-  const isRecurring = s.frequency === 'recurring';
-  const hasError    = isRecurring && isEndBeforeStart(s);
+  const { baseCurrency, strategy } = config;
+  const isRecurring  = s.frequency === 'recurring';
+  const hasError     = isRecurring && isEndBeforeStart(s);
+  const activeBucket = s.bucket ?? 'auto';
+  const bktOptions   = incomeBucketOptions(strategy);
+  const showBucket   = strategy !== '1_BUCKET';
 
   // Estimated annual contribution in base currency (for summary line)
   const baseAmt = fxConvertWithOverrides(s.amount, s.currency, baseCurrency, config.fxOverrides ?? {}, baseCurrency);
@@ -451,6 +476,26 @@ function IncomeStreamCard({ stream: s, config, currentYear, retirementYear, onUp
               )}
             </div>
 
+            {/* Bucket selector */}
+            {showBucket && (
+              <div>
+                <Label className="text-[10px] text-slate-500">Deposit to Bucket</Label>
+                <Select
+                  value={activeBucket}
+                  onValueChange={(v) => v && onUpdate(s.id, { bucket: v as MilestoneBucket })}
+                >
+                  <SelectTrigger className="mt-1 h-8 text-xs w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {bktOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {/* Validation error */}
             {hasError && (
               <div className="flex items-center gap-1.5 text-[10px] text-red-600 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5">
@@ -484,11 +529,18 @@ function IncomeStreamCard({ stream: s, config, currentYear, retirementYear, onUp
                     </>
                   )}
                 </span>
-                {isRecurring && (
-                  <span className="px-1.5 py-0.5 rounded font-medium bg-blue-50 text-blue-600">
-                    {MONTHS[s.startMonth - 1]?.l} {s.startYear} → {MONTHS[s.endMonth - 1]?.l} {s.endYear}
-                  </span>
-                )}
+                <div className="flex items-center gap-1">
+                  {showBucket && (
+                    <span className="px-1.5 py-0.5 rounded font-medium bg-blue-50 text-blue-600">
+                      → {bucketShortLabel(activeBucket, strategy, 'Growth')}
+                    </span>
+                  )}
+                  {isRecurring && (
+                    <span className="px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-500">
+                      {MONTHS[s.startMonth - 1]?.l} {s.startYear} → {MONTHS[s.endMonth - 1]?.l} {s.endYear}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
           </div>

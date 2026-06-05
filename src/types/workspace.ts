@@ -70,8 +70,8 @@ export type MilestoneBucket = 'auto' | 'b1' | 'b2' | 'b3';
  * All amounts are stored in the nominated `currency`; the simulation converts
  * them to baseCurrency using the effective FX rate.
  *
- * Income is deposited into the highest-growth bucket each year:
- *   3-bucket → B3 (Equity)  |  2-bucket → B2 (Growth)  |  1-bucket → B1
+ * Income is deposited into the bucket specified by `bucket`.
+ *   'auto' (default) → growth bucket: 3-bucket → B3 | 2-bucket → B2 | 1-bucket → B1
  */
 export interface IncomeStream {
   id: string;
@@ -89,6 +89,12 @@ export interface IncomeStream {
   endMonth: number;   // 1–12
   /** Always equals startYear when frequency = 'one_time'. */
   endYear: number;
+  /**
+   * Which bucket the income deposits into.
+   * 'auto' = growth bucket (equity-first, same as the pre-existing default).
+   * Backward-compatible: sessions without this field default to 'auto'.
+   */
+  bucket?: MilestoneBucket;
 }
 
 // ── Spending Smile (3-phase parametric model) ─────────────────────────────────
