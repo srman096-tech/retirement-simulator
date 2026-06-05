@@ -240,6 +240,56 @@ function growBuckets(
   ];
 }
 
+// ── Income stream helpers ────────────────────────────────────────────────────
+
+/**
+ * Total income credited from all active income streams in a given calendar year.
+ *
+ * For 'recurring' streams the annual amount is prorated by how many months of
+ * the stream fall inside `year`:
+ *   - Partial first year:  months = 13 − startMonth
+ *   - Partial last year:   months = endMonth
+ *   - Same year:           months = endMonth − startMonth + 1
+ *   - Full middle year:    months = 12
+ *
+ * For 'one_time' streams the full lump sum fires once in startYear.
+ *
+ * Result is returned in `baseCurrency` after FX conversion.
+ */
+function computeIncomeForYear(
+  calendarYear: number,
+  cfg: MasterSimulatorConfig,
+  baseCurrency: SupportedCurrency,
+): number {
+  if (!cfg.incomeStreams?.length) return 0;
+
+  let total = 0;
+  for (const s of cfg.incomeStreams) {
+    const baseAmt = fxConvertWithOverrides(
+      s.amount, s.currency, baseCurrency, cfg.fxOverrides ?? {}, baseCurrency,
+    );
+
+    if (s.frequency === 'one_time') {
+      if (s.startYear === calendarYear) total += baseAmt;
+    } else {
+      // recurring — skip if outside window
+      if (calendarYear < s.startYear || calendarYear > s.endYear) continue;
+      let months: number;
+      if (s.startYear === s.endYear) {
+        months = Math.max(0, s.endMonth - s.startMonth + 1);
+      } else if (calendarYear === s.startYear) {
+        months = 13 - s.startMonth;          // startMonth through Dec
+      } else if (calendarYear === s.endYear) {
+        months = s.endMonth;                 // Jan through endMonth
+      } else {
+        months = 12;
+      }
+      total += baseAmt * months;
+    }
+  }
+  return Math.max(0, total);
+}
+
 // ── Main simulation ─────────────────────────────────────────────────────────
 export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult {
   const { currentAge, retirementAge, lifeExpectancy, strategy, baseCurrency } = cfg;
@@ -336,7 +386,7 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
       fxConvertWithOverrides(m.amountRequired, m.currency, baseCurrency as SupportedCurrency, cfg.fxOverrides ?? {}, baseCurrency as SupportedCurrency);
 
     if (age < retirementAge) {
-      // ── PRE-RETIREMENT: grow → outflows → inflows ───────────────────
+      // ── PRE-RETIREMENT: grow → outflows → inflows → income ──────────
       [b1, b2, b3] = growBuckets(b1, b2, b3, strategy,
         cfg.cashReturnRate, effectiveDebtRate, effectiveEquityRate,
         bCashFrac, bDebtFrac, bEquityFrac, safetyCashFrac, safetyDebtFrac);
@@ -347,7 +397,17 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
       }
       for (const m of inflows) {
         const amt = toBase(m); annualInflow += amt;
-        b1 += amt; // inflows land in the most-liquid bucket
+        b1 += amt; // milestone inflows land in the most-liquid bucket
+      }
+
+      // Regular income / savings contributions → growth bucket
+      const incomeContrib = computeIncomeForYear(calendarYear, cfg, baseCurrency as SupportedCurrency);
+      if (incomeContrib > 0) {
+        annualInflow += incomeContrib;
+        // Route new savings to highest-growth bucket
+        if (strategy === '3_BUCKET')      b3 += incomeContrib;
+        else if (strategy === '2_BUCKET') b2 += incomeContrib;
+        else                              b1 += incomeContrib;
       }
 
     } else {

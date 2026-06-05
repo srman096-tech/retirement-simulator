@@ -44,6 +44,43 @@ export const REGIONAL_MARKET_MAP: Record<SupportedCurrency, RegionalDefaults> = 
 export type StrategyType       = '1_BUCKET' | '2_BUCKET' | '3_BUCKET';
 export type AssetClass         = 'Equity' | 'Debt' | 'Cash';
 export type MilestoneDirection = 'inflow' | 'outflow';
+export type IncomeFrequency    = 'one_time' | 'recurring';
+
+// ── Income Streams (accumulation phase) ──────────────────────────────────────
+/**
+ * Represents a source of income or savings contribution during the accumulation
+ * period (before retirement).  Two modes:
+ *
+ *   'one_time'  — a single lump-sum credit at startYear/startMonth.
+ *                 endYear/endMonth are always equal to start.
+ *
+ *   'recurring' — a fixed monthly contribution active for every month in the
+ *                 range [startYear:startMonth .. endYear:endMonth].
+ *                 Partial first/last years are automatically pro-rated.
+ *
+ * All amounts are stored in the nominated `currency`; the simulation converts
+ * them to baseCurrency using the effective FX rate.
+ *
+ * Income is deposited into the highest-growth bucket each year:
+ *   3-bucket → B3 (Equity)  |  2-bucket → B2 (Growth)  |  1-bucket → B1
+ */
+export interface IncomeStream {
+  id: string;
+  description: string;
+  frequency: IncomeFrequency;
+  currency: SupportedCurrency;
+  /**
+   * Monthly contribution amount when frequency = 'recurring'.
+   * Total lump-sum amount when frequency = 'one_time'.
+   */
+  amount: number;
+  startMonth: number; // 1–12
+  startYear: number;
+  /** Always equals startMonth when frequency = 'one_time'. */
+  endMonth: number;   // 1–12
+  /** Always equals startYear when frequency = 'one_time'. */
+  endYear: number;
+}
 
 // ── Spending Smile (3-phase parametric model) ─────────────────────────────────
 export interface SpendingSmileConfig {
@@ -156,6 +193,8 @@ export interface MasterSimulatorConfig {
 
   assets: MultiCurrencyAsset[];
   milestones: MultiCurrencyMilestone[];
+  /** Income / savings contributions during the accumulation phase. */
+  incomeStreams: IncomeStream[];
 }
 
 // ── FX utilities ──────────────────────────────────────────────────────────────
@@ -268,4 +307,6 @@ export const initialConfig: MasterSimulatorConfig = {
     { id: 'm1', description: 'Capital Event (Outflow)', targetAge: 58, currency: 'INR', amountRequired: 2_000_000, direction: 'outflow' },
     { id: 'm2', description: 'Pension / Inflow',        targetAge: 60, currency: 'INR', amountRequired: 2_000_000, direction: 'inflow'  },
   ],
+
+  incomeStreams: [],
 };
