@@ -3,7 +3,7 @@
 import { MasterSimulatorConfig, BearMarketScenario } from '@/types/workspace';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { TrendingDown, ToggleLeft, ToggleRight, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { TrendingDown, ToggleLeft, ToggleRight, Plus, Trash2, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 
 interface Props {
@@ -25,6 +25,7 @@ function ScenarioCard({
   scenario,
   index,
   canDelete,
+  currentAge,
   minAge,
   maxAge,
   color,
@@ -35,6 +36,7 @@ function ScenarioCard({
   scenario: BearMarketScenario;
   index: number;
   canDelete: boolean;
+  currentAge: number;
   minAge: number;
   maxAge: number;
   color: string;
@@ -196,6 +198,27 @@ function ScenarioCard({
             )}
             {' '}· recovers <strong>+{pct(scenario.recovery1Pct)}</strong> / <strong>+{pct(scenario.recovery2Pct)}</strong>
           </div>
+
+          {/* Stale crash-age warning */}
+          {scenario.crashAge <= currentAge && (
+            <div className="flex items-start justify-between gap-2 rounded-lg px-3 py-2.5 bg-amber-50 border border-amber-300 mt-1">
+              <div className="flex items-start gap-1.5 text-[10px] text-amber-800 leading-snug">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px text-amber-500" />
+                <span>
+                  Crash age <strong>{scenario.crashAge}</strong> is at or before current age <strong>{currentAge}</strong>.
+                  The simulation starts at age {currentAge}, so this crash never fires —{' '}
+                  <strong>stressed and base results will be identical.</strong>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => up({ crashAge: minAge })}
+                className="shrink-0 text-[10px] font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded px-2 py-1 transition-colors whitespace-nowrap"
+              >
+                Fix → Age {minAge}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -234,7 +257,9 @@ export default function StressTestTab({ config, onUpdate, themePrimaryColor }: P
     onUpdate({ bearMarketScenarios: [...bearMarketScenarios, newScenario] });
   };
 
-  const activeCount = bearMarketScenarios.filter(s => s.enabled).length;
+  const activeCount    = bearMarketScenarios.filter(s => s.enabled).length;
+  const staleCount     = bearMarketScenarios.filter(s => s.enabled && s.crashAge <= currentAge).length;
+  const allStale       = activeCount > 0 && staleCount === activeCount;
 
   return (
     <div className="pt-4 space-y-4">
@@ -284,6 +309,36 @@ export default function StressTestTab({ config, onUpdate, themePrimaryColor }: P
             Stress test is <strong>disabled</strong>. Toggle ON to overlay crash scenarios.
           </p>
         )}
+
+        {/* Global stale-scenario warning */}
+        {bearCaseEnabled && allStale && (
+          <div className="flex items-start justify-between gap-3 mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2.5">
+            <div className="flex items-start gap-2 text-[11px] text-red-700 leading-snug">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-px text-red-500" />
+              <span>
+                <strong>All {staleCount} active scenario{staleCount !== 1 ? 's' : ''} have crash ages before or at
+                current age {currentAge}.</strong>{' '}
+                The simulation ignores past crashes — stressed and base results are currently identical.
+                Click "Fix All" to move scenarios into the future.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const fixed = bearMarketScenarios.map((s, i) => ({
+                  ...s,
+                  crashAge: s.crashAge <= currentAge
+                    ? Math.min(currentAge + 2 + i * 5, lifeExpectancy - 3)
+                    : s.crashAge,
+                }));
+                onUpdate({ bearMarketScenarios: fixed });
+              }}
+              className="shrink-0 text-[11px] font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap"
+            >
+              Fix All
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Scenario cards ─────────────────────────────────────────────── */}
@@ -298,6 +353,7 @@ export default function StressTestTab({ config, onUpdate, themePrimaryColor }: P
             scenario={s}
             index={i}
             canDelete={bearMarketScenarios.length > 1}
+            currentAge={currentAge}
             minAge={currentAge + 1}
             maxAge={lifeExpectancy - 3}
             color={SCENARIO_COLORS[i % SCENARIO_COLORS.length]}
