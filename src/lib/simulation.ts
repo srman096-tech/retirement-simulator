@@ -577,6 +577,15 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
       // ── POST-RETIREMENT ─────────────────────────────────────────────
       annualExpense = annualExpenseAtAge(age, cfg);
 
+      // Dynamic Guardrail: reduce living expenses during crash years.
+      // Replenishment targets use the BASE expense (before haircut) so that
+      // safety buffers remain at their normal year-of-expense levels — the
+      // guardrail only cuts spending, not the protection floor.
+      const baseExpenseForTargets = annualExpense; // always unhaircutted
+      if (isCrash && cfg.enableDownturnHaircut && (cfg.downturnExpenseCutPercent ?? 0) > 0) {
+        annualExpense = annualExpense * (1 - (cfg.downturnExpenseCutPercent ?? 0));
+      }
+
       // Step 1 — Inflows (to user-specified bucket)
       for (const m of inflows) {
         const amt = toBase(m); annualInflow += amt;
@@ -589,27 +598,27 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
         [b1, b2, b3] = drawFromBucket(b1, b2, b3, amt, strategy, m.bucket ?? 'auto');
       }
 
-      // Step 3 — Living expenses (cascade from B1)
+      // Step 3 — Living expenses (haircutted if guardrail active, cascade from B1)
       [b1, b2, b3] = cascadeDraw(b1, b2, b3, annualExpense, strategy);
 
-      // Step 4 — Bucket replenishment (always allowed — no freeze policy)
+      // Step 4 — Bucket replenishment using BASE targets (not haircutted)
       if (strategy !== '1_BUCKET') {
         if (strategy === '3_BUCKET') {
           // B1 ← B2 (cash ← debt: always OK)
-          const b1Target = cfg.bucket1TargetYears * annualExpense;
+          const b1Target = cfg.bucket1TargetYears * baseExpenseForTargets;
           if (b1 < b1Target && b2 > 0) {
             const t = Math.min(b2, b1Target - b1);
             refillB1FromB2 = t; b1 += t; b2 -= t;
           }
           // B2 ← B3 (debt ← equity)
-          const b2Target = cfg.bucket2TargetYears * annualExpense;
+          const b2Target = cfg.bucket2TargetYears * baseExpenseForTargets;
           if (b2 < b2Target && b3 > 0) {
             const t = Math.min(b3, b2Target - b2);
             refillB2FromB3 = t; b2 += t; b3 -= t;
           }
         } else if (strategy === '2_BUCKET') {
           // B1 ← B2 (safety ← equity)
-          const b1Target = cfg.bucket1TargetYears * annualExpense;
+          const b1Target = cfg.bucket1TargetYears * baseExpenseForTargets;
           if (b1 < b1Target && b2 > 0) {
             const t = Math.min(b2, b1Target - b1);
             refillB1FromB2 = t; b1 += t; b2 -= t;

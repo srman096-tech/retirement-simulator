@@ -227,7 +227,10 @@ function ScenarioCard({
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function StressTestTab({ config, onUpdate, themePrimaryColor }: Props) {
-  const { bearCaseEnabled, bearMarketScenarios, currentAge, lifeExpectancy } = config;
+  const {
+    bearCaseEnabled, bearMarketScenarios, currentAge, lifeExpectancy,
+    enableDownturnHaircut, downturnExpenseCutPercent,
+  } = config;
 
   const updateScenario = (id: string, updated: BearMarketScenario) => {
     onUpdate({
@@ -375,12 +378,86 @@ export default function StressTestTab({ config, onUpdate, themePrimaryColor }: P
         )}
       </div>
 
+      {/* ── Dynamic Guardrails ─────────────────────────────────────── */}
+      <div
+        className={`rounded-xl border-2 overflow-hidden transition-all ${
+          bearCaseEnabled ? 'opacity-100' : 'opacity-35 pointer-events-none'
+        }`}
+        style={{
+          borderColor: config.enableDownturnHaircut ? '#2563eb60' : '#e2e8f0',
+          backgroundColor: config.enableDownturnHaircut ? '#eff6ff' : '#fafafa',
+        }}
+      >
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-3 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <span className="text-base leading-none mt-0.5">🛡️</span>
+            <div>
+              <p className="text-[12px] font-semibold text-slate-800 leading-snug">
+                Dynamic Guardrails
+              </p>
+              <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                Flexible Spending (Downturn Haircut)
+              </p>
+            </div>
+          </div>
+          {/* Toggle */}
+          <button
+            type="button"
+            onClick={() => onUpdate({ enableDownturnHaircut: !config.enableDownturnHaircut })}
+            className="shrink-0 flex items-center gap-1.5 text-xs font-bold rounded-full px-3 py-1.5 transition-colors"
+            style={
+              config.enableDownturnHaircut
+                ? { backgroundColor: '#2563eb', color: '#fff' }
+                : { backgroundColor: '#f1f5f9', color: '#64748b' }
+            }
+          >
+            {config.enableDownturnHaircut ? 'ON' : 'OFF'}
+          </button>
+        </div>
+
+        {/* Slider — only active when enabled */}
+        <div
+          className="px-4 pb-4 space-y-2 border-t border-slate-100"
+          style={{ opacity: config.enableDownturnHaircut ? 1 : 0.4, pointerEvents: config.enableDownturnHaircut ? 'auto' : 'none' }}
+        >
+          <div className="flex items-center justify-between pt-3 mb-1">
+            <Label className="text-[11px] text-slate-500">Downturn Spending Haircut</Label>
+            <span className="text-sm font-bold text-blue-700">
+              −{pct(config.downturnExpenseCutPercent ?? 0.10)}
+            </span>
+          </div>
+          <Slider
+            value={[(config.downturnExpenseCutPercent ?? 0.10) * 100]}
+            min={5} max={25} step={5}
+            onValueChange={v => onUpdate({ downturnExpenseCutPercent: sliderVal(v) / 100 })}
+            className="w-full"
+          />
+          <div className="flex justify-between text-[10px] text-slate-400">
+            <span>−5% mild</span><span>−25% aggressive</span>
+          </div>
+
+          {/* Explanation */}
+          <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2.5 mt-2 text-[10px] text-blue-700 leading-[1.55]">
+            During each crash year, living expenses are automatically reduced by{' '}
+            <strong>{pct(config.downturnExpenseCutPercent ?? 0.10)}</strong> before the bucket
+            drawdown sequence runs. This simulates cutting non-essential discretionary spending
+            while asset values are depressed, protecting capital from sequence-of-returns risk.
+          </div>
+        </div>
+      </div>
+
       {/* ── Methodology note ─────────────────────────────────────────── */}
       <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5 text-[10px] text-slate-500 leading-relaxed">
         <strong className="text-slate-600">Methodology:</strong> In each crash year, the equity bucket
         loses the drawdown %, and the debt bucket loses drawdown × contagion fraction.
         In years +1 and +2, equity recovers at the specified rates. All other buckets use normal return rates.
         Scenarios are independent and can overlap — the highest-priority (first-listed) crash rule applies when ages coincide.
+        {config.enableDownturnHaircut && bearCaseEnabled && (
+          <span className="text-blue-600">
+            {' '}Dynamic Guardrails are active: living expenses reduced by {pct(config.downturnExpenseCutPercent ?? 0.10)} in crash years.
+          </span>
+        )}
       </div>
     </div>
   );

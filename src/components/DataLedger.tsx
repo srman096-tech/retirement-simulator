@@ -30,7 +30,7 @@ function getBucketCols(strategy: StrategyType): BucketCol[] {
 }
 
 // ── Status badge ─────────────────────────────────────────────────────────────
-function StatusBadge({ status }: { status: MarketStatus }) {
+function StatusBadge({ status, haircutPct }: { status: MarketStatus; haircutPct?: number }) {
   const cfg: Record<MarketStatus, { bg: string; text: string; dot: string; label: string }> = {
     ACCUMULATION: { bg: '#f1f5f9', text: '#64748b', dot: '#94a3b8', label: 'Accumulation' },
     GROWTH:       { bg: '#dcfce7', text: '#15803d', dot: '#22c55e', label: 'Growth'       },
@@ -38,13 +38,16 @@ function StatusBadge({ status }: { status: MarketStatus }) {
     RECOVERY:     { bg: '#fef9c3', text: '#a16207', dot: '#eab308', label: 'Recovery'     },
   };
   const s = cfg[status];
+  const showHaircut = status === 'CRASH' && haircutPct != null && haircutPct > 0;
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
       style={{ backgroundColor: s.bg, color: s.text }}
     >
       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: s.dot }} />
-      {s.label}
+      {showHaircut
+        ? `🐻 Crash (−${(haircutPct! * 100).toFixed(0)}% spend)`
+        : s.label}
     </span>
   );
 }
@@ -270,8 +273,16 @@ export default function DataLedger({ config, baseDataPoints, crashDataPoints }: 
               const totalOutflow = dp.annualExpense + dp.annualOutflow;
 
               // B1 depletion flag: RUN_CURRENT_ALLOCATION + retirement phase + Cash bucket empty
-              const isDriftPolicy = (config.initialRebalancePolicy ?? 'FORCE_TARGET_ON_RETIREMENT') === 'RUN_CURRENT_ALLOCATION';
-              const isPostRetire  = dp.age > retirementAge;
+              const isDriftPolicy  = (config.initialRebalancePolicy ?? 'FORCE_TARGET_ON_RETIREMENT') === 'RUN_CURRENT_ALLOCATION';
+              const isPostRetire   = dp.age > retirementAge;
+
+              // Downturn haircut: applied in crash years during retirement when guardrails are ON
+              const haircutApplied =
+                dp.isInCrashWindow &&
+                config.bearCaseEnabled &&
+                config.enableDownturnHaircut &&
+                isPostRetire;
+              const haircutPct = haircutApplied ? (config.downturnExpenseCutPercent ?? 0) : undefined;
 
               const crashScenario = isCrashTrig
                 ? config.bearMarketScenarios.find(
@@ -343,7 +354,7 @@ export default function DataLedger({ config, baseDataPoints, crashDataPoints }: 
 
                     {/* Status */}
                     <td className="px-3 py-2">
-                      <StatusBadge status={dp.marketStatus} />
+                      <StatusBadge status={dp.marketStatus} haircutPct={haircutPct} />
                     </td>
 
                     {/* Outflow */}

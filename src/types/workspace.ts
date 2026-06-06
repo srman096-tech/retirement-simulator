@@ -239,6 +239,16 @@ export interface MasterSimulatorConfig {
   bearMarketScenarios: BearMarketScenario[];
 
   /**
+   * Dynamic Guardrails — downturn spending haircut.
+   * When enabled, living expenses are reduced by `downturnExpenseCutPercent`
+   * during every CRASH-status year (post-retirement only).
+   * Has no effect when bearCaseEnabled = false.
+   */
+  enableDownturnHaircut: boolean;
+  /** Fraction to cut from living expenses in crash years, e.g. 0.10 = 10%. */
+  downturnExpenseCutPercent: number;
+
+  /**
    * User-editable FX overrides: "1 unit of this currency = X units of base currency".
    * Keys are the foreign currency; omitting a key falls back to FX_RATES defaults.
    * Must be reset to {} whenever baseCurrency changes.
@@ -336,6 +346,8 @@ export const initialConfig: MasterSimulatorConfig = {
   initialRebalancePolicy: 'FORCE_TARGET_ON_RETIREMENT',
 
   bearCaseEnabled: false,
+  enableDownturnHaircut: false,
+  downturnExpenseCutPercent: 0.10,
   fxOverrides: {},
   bearMarketScenarios: [
     {
