@@ -329,6 +329,51 @@ function growBuckets(
   ];
 }
 
+// ── Day-1 retirement rebalance ───────────────────────────────────────────────
+
+/**
+ * Structural bucket rebalance fired at the exact moment age === retirementAge
+ * when policy === 'FORCE_TARGET_ON_RETIREMENT'.
+ *
+ * Fills B1 to (annualExpense × bucket1TargetYears), then B2 to
+ * (annualExpense × bucket2TargetYears), then parks the remainder in B3 (equity).
+ * If total assets are insufficient to meet both targets the available balance
+ * is allocated in priority order: B1 first, then B2, B3 = 0.
+ *
+ * For 2-bucket strategies only B1 is targeted; B2 absorbs the rest, B3 stays 0.
+ * For 1-bucket strategies the function is a no-op.
+ *
+ * Returns updated [b1, b2, b3].
+ */
+function applyDay1Rebalance(
+  b1: number, b2: number, b3: number,
+  annualExpenseAtRetirement: number,
+  cfg: MasterSimulatorConfig,
+): [number, number, number] {
+  if (
+    cfg.strategy === '1_BUCKET' ||
+    (cfg.initialRebalancePolicy ?? 'FORCE_TARGET_ON_RETIREMENT') !== 'FORCE_TARGET_ON_RETIREMENT'
+  ) return [b1, b2, b3];
+
+  const total = b1 + b2 + b3;
+  const tB1   = annualExpenseAtRetirement * cfg.bucket1TargetYears;
+
+  if (cfg.strategy === '2_BUCKET') {
+    if (total >= tB1) return [tB1, total - tB1, 0];
+    return [total, 0, 0];
+  }
+
+  // 3-bucket
+  const tB2 = annualExpenseAtRetirement * cfg.bucket2TargetYears;
+  if (total >= tB1 + tB2) {
+    return [tB1, tB2, total - tB1 - tB2];
+  }
+  if (total >= tB1) {
+    return [tB1, total - tB1, 0];
+  }
+  return [total, 0, 0];
+}
+
 // ── Income stream helpers ────────────────────────────────────────────────────
 
 /**
@@ -473,6 +518,12 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
 
     const toBase = (m: (typeof cfg.milestones)[0]) =>
       fxConvertWithOverrides(m.amountRequired, m.currency, baseCurrency as SupportedCurrency, cfg.fxOverrides ?? {}, baseCurrency as SupportedCurrency);
+
+    // ── Day-1 retirement rebalance (fires once, before first drawdown) ─
+    if (age === retirementAge) {
+      const annualAtRetirement = annualExpenseAtAge(age, cfg);
+      [b1, b2, b3] = applyDay1Rebalance(b1, b2, b3, annualAtRetirement, cfg);
+    }
 
     if (age < retirementAge) {
       // ── PRE-RETIREMENT: grow → outflows → inflows → income ──────────

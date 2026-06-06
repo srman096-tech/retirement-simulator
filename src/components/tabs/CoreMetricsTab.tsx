@@ -4,6 +4,7 @@ import {
   MasterSimulatorConfig,
   SupportedCurrency,
   StrategyType,
+  InitialRebalancePolicy,
   CURRENCY_LABELS,
   CURRENCY_SYMBOLS,
   FX_RATES,
@@ -472,6 +473,63 @@ export default function CoreMetricsTab({ config, onUpdate, fxStatus, fxLastUpdat
                 </p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Retirement Rebalancing Policy ───────────────────────────── */}
+      {strategy !== '1_BUCKET' && (
+        <div>
+          <SectionLabel>Portfolio Rebalancing</SectionLabel>
+          <div className="rounded-xl border border-black/[0.08] overflow-hidden text-[11px]">
+
+            {/* Segmented switch */}
+            <div className="flex">
+              {(
+                [
+                  { value: 'FORCE_TARGET_ON_RETIREMENT', label: 'Restructure on Retirement' },
+                  { value: 'RUN_CURRENT_ALLOCATION',     label: 'Maintain Current Holdings' },
+                ] as const
+              ).map((opt, i) => {
+                const active = (config.initialRebalancePolicy ?? 'FORCE_TARGET_ON_RETIREMENT') === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => onUpdate({ initialRebalancePolicy: opt.value })}
+                    className={[
+                      'flex-1 px-3 py-2.5 font-medium text-center transition-colors leading-snug',
+                      i > 0 ? 'border-l border-black/[0.08]' : '',
+                    ].join(' ')}
+                    style={active
+                      ? { backgroundColor: 'var(--theme-primary)', color: '#fff' }
+                      : { backgroundColor: '#f6f7f9', color: '#6b7280' }
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Helper copy */}
+            <div className="px-3 py-2.5 bg-[#f9fafb] border-t border-black/[0.05]">
+              {(config.initialRebalancePolicy ?? 'FORCE_TARGET_ON_RETIREMENT') === 'FORCE_TARGET_ON_RETIREMENT' ? (
+                <p className="text-[10px] text-slate-500 leading-[1.55]">
+                  <span className="font-semibold text-slate-600">Enforce Targets: </span>
+                  On Day 1 of retirement, equities are liquidated to fill Cash (B1) and Debt (B2)
+                  to your target-year amounts. The remainder stays in Equity. Models a planned
+                  structural reallocation at retirement.
+                </p>
+              ) : (
+                <p className="text-[10px] text-slate-500 leading-[1.55]">
+                  <span className="font-semibold text-slate-600">Let Portfolios Drift: </span>
+                  Current asset weights carry into retirement unchanged — no reallocation is applied.
+                  Use this to model clients who have not rebalanced before retiring. Bucket gaps
+                  will be flagged in the Data Ledger.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, Fragment } from 'react';
 import { SimulationDataPoint, MarketStatus } from '@/lib/simulation';
-import { MasterSimulatorConfig, StrategyType, SupportedCurrency, BearMarketScenario } from '@/types/workspace';
+import { MasterSimulatorConfig, StrategyType, SupportedCurrency, BearMarketScenario, InitialRebalancePolicy } from '@/types/workspace';
 import { formatCurrencyShort, formatCurrency } from '@/lib/formatters';
 import { Download, TrendingUp, TrendingDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -269,6 +269,10 @@ export default function DataLedger({ config, baseDataPoints, crashDataPoints }: 
               const healthRatio  = peakTotal > 0 ? dp.total / peakTotal : 0;
               const totalOutflow = dp.annualExpense + dp.annualOutflow;
 
+              // B1 depletion flag: RUN_CURRENT_ALLOCATION + retirement phase + Cash bucket empty
+              const isDriftPolicy = (config.initialRebalancePolicy ?? 'FORCE_TARGET_ON_RETIREMENT') === 'RUN_CURRENT_ALLOCATION';
+              const isPostRetire  = dp.age > retirementAge;
+
               const crashScenario = isCrashTrig
                 ? config.bearMarketScenarios.find(
                     (s: BearMarketScenario) => s.enabled && s.crashAge === dp.age,
@@ -281,9 +285,23 @@ export default function DataLedger({ config, baseDataPoints, crashDataPoints }: 
                   {isRetire && (
                     <SectionRow
                       colSpan={totalCols}
-                      label={`◆  Retirement begins — age ${retirementAge}`}
+                      label={`◆  Retirement begins — age ${retirementAge}${
+                        isDriftPolicy
+                          ? '  ·  Maintaining current holdings (no rebalance)'
+                          : '  ·  Buckets restructured to targets on Day 1'
+                      }`}
                       color={themePrimaryColor}
                       bg={`${themePrimaryColor}12`}
+                    />
+                  )}
+
+                  {/* Drift-policy gap warning — fires once, at retirement start, when B1 is underfunded */}
+                  {isRetire && isDriftPolicy && strategy !== '1_BUCKET' && dp.bucket1 < dp.annualExpense && (
+                    <SectionRow
+                      colSpan={totalCols}
+                      label={`⚠  Cash (B1) below 1-yr expense target — drawdowns will pull from Debt or Equity immediately`}
+                      color="#b45309"
+                      bg="#fffbeb"
                     />
                   )}
 
@@ -343,13 +361,31 @@ export default function DataLedger({ config, baseDataPoints, crashDataPoints }: 
                     </td>
 
                     {/* Bucket columns */}
-                    {cols.map(col => (
-                      <td key={col.key} className="px-3 py-2 text-right tabular-nums">
-                        {dp[col.key] > 0
-                          ? <span className="font-medium" style={{ color: col.color }}>{fmtS(dp[col.key])}</span>
-                          : <span className="text-slate-200">—</span>}
-                      </td>
-                    ))}
+                    {cols.map(col => {
+                      const val = dp[col.key];
+                      // Show depletion warning on B1 during drift-policy retirement
+                      const showB1Warn =
+                        col.key === 'bucket1' &&
+                        isPostRetire &&
+                        isDriftPolicy &&
+                        strategy !== '1_BUCKET' &&
+                        val <= 0;
+                      return (
+                        <td key={col.key} className="px-3 py-2 text-right tabular-nums">
+                          {val > 0 ? (
+                            <span className="font-medium" style={{ color: col.color }}>
+                              {fmtS(val)}
+                            </span>
+                          ) : showB1Warn ? (
+                            <span className="inline-flex items-center justify-end gap-1 text-amber-600 font-semibold text-[10px] whitespace-nowrap">
+                              ⚠ Depleted
+                            </span>
+                          ) : (
+                            <span className="text-slate-200">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
 
                     {/* Net Worth + health bar */}
                     <td className="px-4 py-2 text-right">

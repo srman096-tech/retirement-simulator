@@ -44,6 +44,25 @@ export const REGIONAL_MARKET_MAP: Record<SupportedCurrency, RegionalDefaults> = 
 export type StrategyType       = '1_BUCKET' | '2_BUCKET' | '3_BUCKET';
 export type AssetClass         = 'Equity' | 'Debt' | 'Cash';
 export type MilestoneDirection = 'inflow' | 'outflow';
+
+/**
+ * Controls how buckets are structured on the first day of retirement.
+ *
+ * 'FORCE_TARGET_ON_RETIREMENT'
+ *   On the loop iteration where age === retirementAge, the simulation sells /
+ *   transfers assets so that B1 and B2 are exactly filled to their target-years
+ *   amounts (based on inflation-adjusted annual expense at retirement).
+ *   Any surplus stays in B3 (equity).  This models a professional day-1
+ *   structural reallocation and is the recommended default.
+ *
+ * 'RUN_CURRENT_ALLOCATION'
+ *   Buckets carry their current weights into retirement unchanged.
+ *   The simulation draws normally from B1 → B2 → B3 without any pre-fill.
+ *   Use this to model clients who have not rebalanced prior to retiring.
+ */
+export type InitialRebalancePolicy =
+  | 'FORCE_TARGET_ON_RETIREMENT'
+  | 'RUN_CURRENT_ALLOCATION';
 export type IncomeFrequency    = 'one_time' | 'recurring';
 
 /**
@@ -208,6 +227,13 @@ export interface MasterSimulatorConfig {
   bucket1TargetYears: number; // 2-bucket and 3-bucket
   bucket2TargetYears: number; // 3-bucket only
 
+  /**
+   * Day-1-of-retirement rebalancing policy.
+   * See InitialRebalancePolicy for full documentation.
+   * Not applicable to 1-bucket strategy.
+   */
+  initialRebalancePolicy: InitialRebalancePolicy;
+
   // Bear market scenarios (multiple configurable events)
   bearCaseEnabled: boolean;
   bearMarketScenarios: BearMarketScenario[];
@@ -307,6 +333,7 @@ export const initialConfig: MasterSimulatorConfig = {
 
   bucket1TargetYears: 1.5,
   bucket2TargetYears: 5,
+  initialRebalancePolicy: 'FORCE_TARGET_ON_RETIREMENT',
 
   bearCaseEnabled: false,
   fxOverrides: {},
