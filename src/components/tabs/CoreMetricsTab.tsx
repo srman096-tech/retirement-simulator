@@ -379,7 +379,22 @@ export default function CoreMetricsTab({ config, onUpdate, fxStatus, fxLastUpdat
 
       {/* ── Bucket Strategy ──────────────────────────────────────────── */}
       <div>
-        <SectionLabel>Bucket Strategy</SectionLabel>
+        <div className="flex items-center justify-between mb-2.5">
+          <SectionLabel>Bucket Strategy</SectionLabel>
+          {/* Compare all strategies toggle */}
+          <button
+            type="button"
+            onClick={() => onUpdate({ compareStrategies: !config.compareStrategies })}
+            className="text-[9px] font-semibold rounded-full px-2.5 py-1 border transition-all mb-2.5"
+            style={config.compareStrategies
+              ? { backgroundColor: config.themePrimaryColor, color: '#fff', borderColor: config.themePrimaryColor }
+              : { backgroundColor: 'transparent', color: '#6b7280', borderColor: 'rgba(0,0,0,0.12)' }
+            }
+            title="Run all 3 strategies in parallel and compare results"
+          >
+            {config.compareStrategies ? '⊞ Comparing All' : '⊞ Compare All'}
+          </button>
+        </div>
         <div className="flex gap-1 rounded-lg p-[3px] bg-[#f6f7f9] border border-black/[0.08]">
           {STRATEGIES.map(({ value, label }) => {
             const active = strategy === value;
@@ -411,6 +426,11 @@ export default function CoreMetricsTab({ config, onUpdate, fxStatus, fxLastUpdat
         </div>
         <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
           {STRATEGY_DESCS[strategy]}
+          {config.compareStrategies && (
+            <span className="text-slate-500 font-medium">
+              {' '}· All 3 strategies running in parallel below.
+            </span>
+          )}
         </p>
       </div>
 

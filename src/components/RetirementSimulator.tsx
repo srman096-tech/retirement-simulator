@@ -115,6 +115,27 @@ export default function RetirementSimulator() {
     [config],
   );
 
+  // ── Compare Strategies — parallel base-case runs for all 3 strategies ──────
+  // Always base-case (bearCaseEnabled: false) for apples-to-apples comparison.
+  const compare1B = useMemo(
+    () => config.compareStrategies
+      ? executeSimulation({ ...config, strategy: '1_BUCKET', bearCaseEnabled: false })
+      : null,
+    [config],
+  );
+  const compare2B = useMemo(
+    () => config.compareStrategies
+      ? executeSimulation({ ...config, strategy: '2_BUCKET', bearCaseEnabled: false })
+      : null,
+    [config],
+  );
+  const compare3B = useMemo(
+    () => config.compareStrategies
+      ? executeSimulation({ ...config, strategy: '3_BUCKET', bearCaseEnabled: false })
+      : null,
+    [config],
+  );
+
   // ── Config update with FX re-apply on currency change ─────────────────────
   const onUpdate = useCallback((updates: Partial<MasterSimulatorConfig>) => {
     setConfig(prev => {
@@ -200,6 +221,9 @@ export default function RetirementSimulator() {
             crashResult={crashResult}
             onUpdate={onUpdate}
             showDataLedger={showDataLedger}
+            compare1B={compare1B}
+            compare2B={compare2B}
+            compare3B={compare3B}
           />
         </section>
       </main>

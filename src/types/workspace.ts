@@ -213,6 +213,14 @@ export interface MasterSimulatorConfig {
   baseCurrency: SupportedCurrency;
   strategy: StrategyType;
 
+  /**
+   * When true, all three bucket strategies (1B / 2B / 3B) are executed in
+   * parallel on the same inputs and shown side-by-side in the output panel.
+   * Comparison always uses the base case (bearCaseEnabled = false) so results
+   * are directly comparable across strategies.
+   */
+  compareStrategies: boolean;
+
   // Expenses
   monthlyExpensesNative: number; // in baseCurrency
   spendingSmile: SpendingSmileConfig;
@@ -325,6 +333,7 @@ export const initialConfig: MasterSimulatorConfig = {
 
   baseCurrency: 'INR',
   strategy:     '3_BUCKET',
+  compareStrategies: false,
 
   monthlyExpensesNative: 150_000,
   spendingSmile: {
