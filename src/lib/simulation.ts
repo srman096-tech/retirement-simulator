@@ -12,6 +12,7 @@ export type MarketStatus = 'ACCUMULATION' | 'CRASH' | 'RECOVERY' | 'GROWTH';
 export interface SimulationDataPoint {
   age: number;
   calendarYear: number;
+  // ── Bucket END balances (after all operations + growth) ──────────────────
   /**
    * bucket1 — Cash (3-bucket) | Safety/Cash+Debt (2-bucket) | Entire portfolio (1-bucket)
    * bucket2 — Debt (3-bucket) | Growth/Equity (2-bucket)    | 0 (1-bucket)
@@ -23,15 +24,39 @@ export interface SimulationDataPoint {
   total: number;
   /** Portfolio total deflated to today's purchasing power (÷ cumulative CPI) */
   realTotal: number;
+
+  // ── Bucket START balances (captured before any operations for this year) ──
+  bucket1Start: number;
+  bucket2Start: number;
+  bucket3Start: number;
+
+  // ── Expense tracking ─────────────────────────────────────────────────────
+  /** Inflation-adjusted target expense BEFORE any downturn haircut is applied. */
+  inflatedNeed: number;
+  /**
+   * Living expenses drawn this year AFTER haircut.
+   * Stored in annualExpense for compatibility; mirrors it in normal operation.
+   */
   annualExpense: number;
-  annualOutflow: number; // milestone outflows only (not living expenses)
+  /** Actual amount successfully withdrawn for living expenses (≤ annualExpense when capital is depleted). */
+  actualLivingWithdrawn: number;
+  annualOutflow: number;  // milestone outflows only
   annualInflow: number;
+
+  // ── Per-bucket living-expense draws (for expandable detail row) ──────────
+  drawFromB1ForExpense: number;
+  drawFromB2ForExpense: number;
+  drawFromB3ForExpense: number;
+
+  // ── Inter-bucket refill transfers ────────────────────────────────────────
   refillB1FromB2: number;
   refillB2FromB3: number;
+
+  // ── Return rates ─────────────────────────────────────────────────────────
   equityEffectiveRate: number;
   debtEffectiveRate: number;
   effectiveInflationRate: number;
-  isInCrashWindow: boolean; // true when marketStatus === 'CRASH'
+  isInCrashWindow: boolean;
   marketStatus: MarketStatus;
 }
 
@@ -200,6 +225,28 @@ function cascadeDraw(
     }
   }
   return [b1, b2, b3];
+}
+
+/**
+ * Like cascadeDraw but also returns how much was drawn from each bucket.
+ * Used for the living-expense step so the DataLedger can show per-bucket detail.
+ * Returns [b1, b2, b3, drawFromB1, drawFromB2, drawFromB3].
+ */
+function cascadeDrawDetailed(
+  b1: number, b2: number, b3: number,
+  amount: number,
+  strategy: StrategyType,
+): [number, number, number, number, number, number] {
+  let rem = amount;
+  const take1 = Math.min(b1, rem); b1 -= take1; rem -= take1;
+  let take2 = 0, take3 = 0;
+  if (strategy !== '1_BUCKET') {
+    take2 = Math.min(b2, rem); b2 -= take2; rem -= take2;
+    if (strategy === '3_BUCKET') {
+      take3 = Math.min(b3, rem); b3 -= take3;
+    }
+  }
+  return [b1, b2, b3, take1, take2, take3];
 }
 
 /**
@@ -472,7 +519,10 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
     bucket1: b1, bucket2: b2, bucket3: b3,
     total: b1 + b2 + b3,
     realTotal: b1 + b2 + b3,
-    annualExpense: 0, annualOutflow: 0, annualInflow: 0,
+    bucket1Start: b1, bucket2Start: b2, bucket3Start: b3,
+    inflatedNeed: 0, annualExpense: 0, actualLivingWithdrawn: 0,
+    annualOutflow: 0, annualInflow: 0,
+    drawFromB1ForExpense: 0, drawFromB2ForExpense: 0, drawFromB3ForExpense: 0,
     refillB1FromB2: 0, refillB2FromB3: 0,
     equityEffectiveRate: cfg.equityReturnRate,
     debtEffectiveRate: cfg.debtReturnRate,
@@ -490,13 +540,21 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
     const effInfl             = effectiveInflationRateAt(age, cfg);
     const isCrash             = marketStatus === 'CRASH';
 
+    // ── Snapshot start balances before any operations ─────────────────
+    const bucket1Start = b1;
+    const bucket2Start = b2;
+    const bucket3Start = b3;
+
     // Terminal zero guard
     if (b1 + b2 + b3 <= 0) {
       if (exhaustionAge === null) exhaustionAge = age;
       dataPoints.push({
         age: age + 1, calendarYear: calendarYear + 1,
         bucket1: 0, bucket2: 0, bucket3: 0, total: 0, realTotal: 0,
-        annualExpense: 0, annualOutflow: 0, annualInflow: 0,
+        bucket1Start, bucket2Start, bucket3Start,
+        inflatedNeed: 0, annualExpense: 0, actualLivingWithdrawn: 0,
+        annualOutflow: 0, annualInflow: 0,
+        drawFromB1ForExpense: 0, drawFromB2ForExpense: 0, drawFromB3ForExpense: 0,
         refillB1FromB2: 0, refillB2FromB3: 0,
         equityEffectiveRate: effectiveEquityRate,
         debtEffectiveRate: effectiveDebtRate,
@@ -507,11 +565,16 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
       continue;
     }
 
-    let annualExpense  = 0;
-    let annualOutflow  = 0;
-    let annualInflow   = 0;
-    let refillB1FromB2 = 0;
-    let refillB2FromB3 = 0;
+    let annualExpense          = 0;
+    let inflatedNeed           = 0;
+    let actualLivingWithdrawn  = 0;
+    let annualOutflow          = 0;
+    let annualInflow           = 0;
+    let refillB1FromB2         = 0;
+    let refillB2FromB3         = 0;
+    let drawFromB1ForExpense   = 0;
+    let drawFromB2ForExpense   = 0;
+    let drawFromB3ForExpense   = 0;
 
     const outflows = cfg.milestones.filter(m => m.targetAge === age && m.direction === 'outflow');
     const inflows  = cfg.milestones.filter(m => m.targetAge === age && m.direction === 'inflow');
@@ -575,7 +638,8 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
 
     } else {
       // ── POST-RETIREMENT ─────────────────────────────────────────────
-      annualExpense = annualExpenseAtAge(age, cfg);
+      inflatedNeed  = annualExpenseAtAge(age, cfg);
+      annualExpense = inflatedNeed;
 
       // Dynamic Guardrail: reduce living expenses during crash years.
       // Replenishment targets use the BASE expense (before haircut) so that
@@ -598,8 +662,10 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
         [b1, b2, b3] = drawFromBucket(b1, b2, b3, amt, strategy, m.bucket ?? 'auto');
       }
 
-      // Step 3 — Living expenses (haircutted if guardrail active, cascade from B1)
-      [b1, b2, b3] = cascadeDraw(b1, b2, b3, annualExpense, strategy);
+      // Step 3 — Living expenses (detailed cascade for per-bucket draw tracking)
+      [b1, b2, b3, drawFromB1ForExpense, drawFromB2ForExpense, drawFromB3ForExpense] =
+        cascadeDrawDetailed(b1, b2, b3, annualExpense, strategy);
+      actualLivingWithdrawn = drawFromB1ForExpense + drawFromB2ForExpense + drawFromB3ForExpense;
 
       // Step 4 — Bucket replenishment using BASE targets (not haircutted)
       if (strategy !== '1_BUCKET') {
@@ -650,9 +716,15 @@ export function executeSimulation(cfg: MasterSimulatorConfig): SimulationResult 
       bucket1: b1, bucket2: b2, bucket3: b3,
       total: newTotal,
       realTotal,
+      bucket1Start, bucket2Start, bucket3Start,
+      inflatedNeed,
       annualExpense,
+      actualLivingWithdrawn,
       annualOutflow,
       annualInflow,
+      drawFromB1ForExpense,
+      drawFromB2ForExpense,
+      drawFromB3ForExpense,
       refillB1FromB2,
       refillB2FromB3,
       equityEffectiveRate: effectiveEquityRate,
