@@ -82,14 +82,19 @@ function HealthBadge({ status }: { status: HealthStatus }) {
 }
 
 // ── Eq Return display ──────────────────────────────────────────────────────────
-function EqReturnCell({ rate, isCrash, haircutPct }: { rate: number; isCrash: boolean; haircutPct?: number }) {
+function EqReturnCell({ rate, marketStatus, haircutPct }: { rate: number; marketStatus: MarketStatus; haircutPct?: number }) {
   const isNeg   = rate < 0;
   const pctStr  = `${isNeg ? '' : '+'}${(rate * 100).toFixed(1)}%`;
   const color   = isNeg ? '#dc2626' : '#16a34a';
+
+  const phaseLabel = marketStatus === 'CRASH' ? '🐻 Crash Meltdown'
+                   : marketStatus === 'RECOVERY' ? '📈 Recovery Clawback'
+                   : null;
+
   return (
     <div className="flex flex-col items-center gap-0.5">
       <span className="font-bold tabular-nums text-[11px]" style={{ color }}>{pctStr}</span>
-      {isCrash && <span className="text-[9px] font-semibold text-red-500">🐻 Crash</span>}
+      {phaseLabel && <span className="text-[8px] font-semibold text-slate-600">{phaseLabel}</span>}
       {haircutPct && <span className="text-[9px] text-blue-500">−{(haircutPct*100).toFixed(0)}% spend</span>}
     </div>
   );
@@ -514,7 +519,7 @@ export default function DataLedger({ config, baseDataPoints, crashDataPoints }: 
                     <td className="px-3 py-2 text-center">
                       <EqReturnCell
                         rate={dp.equityEffectiveRate}
-                        isCrash={isCrash}
+                        marketStatus={dp.marketStatus}
                         haircutPct={haircutPct}
                       />
                     </td>

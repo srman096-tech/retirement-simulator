@@ -63,6 +63,49 @@ export type MilestoneDirection = 'inflow' | 'outflow';
 export type InitialRebalancePolicy =
   | 'FORCE_TARGET_ON_RETIREMENT'
   | 'RUN_CURRENT_ALLOCATION';
+
+/**
+ * Historical market crash templates with pre-configured scenarios.
+ */
+export type CrashPresetType = 'STANDARD_CORRECTION' | 'GREAT_DEPRESSION' | 'FLASH_CRASH' | 'CUSTOM';
+
+export interface CrashScenarioTemplate {
+  name: string;
+  equityDropPercent: number;     // Total peak-to-trough drop (0.20 = 20%)
+  crashDurationYears: number;    // Years market is in negative/flat phase
+  recoveryDurationYears: number; // Years to climb back to pre-crash peak
+  description: string;
+}
+
+/**
+ * Historical market crash presets mapped to institutional scenarios.
+ * Recovery phase applies a calculated compound return rate that mathematically
+ * brings the portfolio back to break-even over the specified duration.
+ */
+export const CRASH_PRESETS: Record<Exclude<CrashPresetType, 'CUSTOM'>, CrashScenarioTemplate> = {
+  STANDARD_CORRECTION: {
+    name: 'Standard 4-Yr Cyclical Turn',
+    equityDropPercent: 0.20,
+    crashDurationYears: 1,
+    recoveryDurationYears: 2,
+    description: 'Mimics the typical market cycle. A 20% drop over 12 months followed by a steady 2-year recovery.',
+  },
+  GREAT_DEPRESSION: {
+    name: 'Structural Deep Depression (e.g., 2008 / 1929)',
+    equityDropPercent: 0.50,
+    crashDurationYears: 2,
+    recoveryDurationYears: 4,
+    description: 'A massive 50% systemic meltdown. Markets bleed for 2 years and take a grueling 4 years to break even.',
+  },
+  FLASH_CRASH: {
+    name: 'Black Swan Flash Crash (e.g., 2020 COVID)',
+    equityDropPercent: 0.30,
+    crashDurationYears: 0.5,
+    recoveryDurationYears: 1,
+    description: 'A sharp, violent 30% drop with a rapid, aggressive V-shaped recovery within 12 to 18 months.',
+  },
+};
+
 export type IncomeFrequency    = 'one_time' | 'recurring';
 
 /**
@@ -159,8 +202,18 @@ export interface BearMarketScenario {
   drawdownPct: number;
   /** Equity bucket return in year +1 after crash */
   recovery1Pct: number;
-  /** Equity bucket return in year +2 after crash */
+  /** Equity bucket return in year +2 after crash (legacy; replaced by crashDurationYears + calculated recovery) */
   recovery2Pct: number;
+
+  /**
+   * THREE-PHASE MODEL (new fields; optional for backward compatibility)
+   * When present, overrides recovery1Pct/recovery2Pct with a calculated recovery rate.
+   */
+  /** Duration of the crash phase in years (e.g. 1 = 1 year of negative returns) */
+  crashDurationYears?: number;
+  /** Duration of the recovery phase in years (calculated return to break even) */
+  recoveryDurationYears?: number;
+
   /**
    * Debt/conservative contagion fraction.
    * Effective B2 drop = drawdownPct × bucket2ContagionPct

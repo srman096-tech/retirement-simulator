@@ -4,6 +4,7 @@ import {
   StrategyType,
   SupportedCurrency,
   fxConvertWithOverrides,
+  CRASH_PRESETS,
 } from '@/types/workspace';
 
 // ── Output types ───────────────────────────────────────────────────────────
@@ -73,20 +74,65 @@ export interface SimulationResult {
 
 /**
  * Effective equity return for a given age under multi-scenario bear case.
- * Crash year  → −drawdownPct
- * Year +1     → recovery1Pct
- * Year +2     → recovery2Pct
- * Otherwise   → equityReturnRate
+ * THREE-PHASE MODEL:
+ *   PHASE 1 (CRASH): age in [crashAge, crashAge + crashDurationYears)
+ *     Return = −drawdownPct
+ *   PHASE 2 (RECOVERY): age in [crashAge + crashDurationYears, crashAge + crashDurationYears + recoveryDurationYears)
+ *     Return = calculated compound rate to break even
+ *   PHASE 3 (NORMAL): outside the crash/recovery window
+ *     Return = equityReturnRate
  */
 function getBearEquityRate(age: number, cfg: MasterSimulatorConfig): number {
   if (!cfg.bearCaseEnabled) return cfg.equityReturnRate;
+
   for (const s of cfg.bearMarketScenarios) {
     if (!s.enabled) continue;
-    if (age === s.crashAge)     return -s.drawdownPct;
-    if (age === s.crashAge + 1) return s.recovery1Pct;
-    if (age === s.crashAge + 2) return s.recovery2Pct;
+
+    // Use new three-phase fields if available (crashDurationYears, recoveryDurationYears)
+    // Fallback to old fields (recovery1Pct, recovery2Pct) if new fields don't exist
+    if (s.crashDurationYears != null && s.recoveryDurationYears != null) {
+      const phase = detectCrashPhase(age, s.crashAge, s.crashDurationYears, s.recoveryDurationYears);
+      if (phase === 'CRASH') {
+        return -s.drawdownPct;
+      }
+      if (phase === 'RECOVERY') {
+        return calculateRecoveryRate(s.drawdownPct, s.recoveryDurationYears);
+      }
+    } else {
+      // Fallback to legacy two-year recovery model
+      if (age === s.crashAge) return -s.drawdownPct;
+      if (age === s.crashAge + 1) return (s as any).recovery1Pct ?? cfg.equityReturnRate;
+      if (age === s.crashAge + 2) return (s as any).recovery2Pct ?? cfg.equityReturnRate;
+    }
   }
+
   return cfg.equityReturnRate;
+}
+
+/**
+ * Three-phase market detection: which phase is this age in?
+ * Returns 'CRASH', 'RECOVERY', or null (neither).
+ */
+function detectCrashPhase(
+  age: number,
+  crashAge: number,
+  crashDurationYears: number,
+  recoveryDurationYears: number,
+): 'CRASH' | 'RECOVERY' | null {
+  if (age >= crashAge && age < crashAge + crashDurationYears) return 'CRASH';
+  const recoveryStartAge = crashAge + crashDurationYears;
+  if (age >= recoveryStartAge && age < recoveryStartAge + recoveryDurationYears) return 'RECOVERY';
+  return null;
+}
+
+/**
+ * Calculate the compound recovery rate needed to break even after a crash.
+ * Formula: required_annual_rate = (1 / (1 - dropPercent))^(1 / recoveryYears) - 1
+ */
+function calculateRecoveryRate(dropPercent: number, recoveryYears: number): number {
+  if (recoveryYears <= 0) return 0;
+  const baselineMultiplier = 1 / (1 - dropPercent);
+  return Math.pow(baselineMultiplier, 1 / recoveryYears) - 1;
 }
 
 /**
@@ -103,7 +149,7 @@ function getBearDebtRate(age: number, cfg: MasterSimulatorConfig): number {
   return cfg.debtReturnRate;
 }
 
-/** Market status label for a given age. */
+/** Market status label for a given age using three-phase detection. */
 function getMarketStatus(
   age: number,
   cfg: MasterSimulatorConfig,
@@ -111,12 +157,23 @@ function getMarketStatus(
 ): MarketStatus {
   if (age < retirementAge) return 'ACCUMULATION';
   if (!cfg.bearCaseEnabled) return 'GROWTH';
+
   for (const s of cfg.bearMarketScenarios) {
     if (!s.enabled) continue;
-    if (age === s.crashAge)     return 'CRASH';
-    if (age === s.crashAge + 1) return 'RECOVERY';
-    if (age === s.crashAge + 2) return 'RECOVERY';
+
+    // Three-phase model: detect which phase we're in
+    if (s.crashDurationYears != null && s.recoveryDurationYears != null) {
+      const phase = detectCrashPhase(age, s.crashAge, s.crashDurationYears, s.recoveryDurationYears);
+      if (phase === 'CRASH') return 'CRASH';
+      if (phase === 'RECOVERY') return 'RECOVERY';
+    } else {
+      // Fallback: legacy two-year recovery model
+      if (age === s.crashAge) return 'CRASH';
+      if (age === s.crashAge + 1) return 'RECOVERY';
+      if (age === s.crashAge + 2) return 'RECOVERY';
+    }
   }
+
   return 'GROWTH';
 }
 
