@@ -1,7 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { Table2, Share2, FileDown } from 'lucide-react';
+import Link from 'next/link';
+import { Table2, Share2, FileDown, BookOpen } from 'lucide-react';
 import { MasterSimulatorConfig } from '@/types/workspace';
 import { SimulationResult } from '@/lib/simulation';
 
@@ -138,6 +139,16 @@ export default function Navbar({
             · Age {currentAge} · {baseCurrency}
           </span>
         </div>
+
+        {/* Tutorial link */}
+        <Link
+          href="/tutorial"
+          className="hidden sm:flex items-center gap-1.5 text-[12px] font-medium rounded-lg px-3 h-8 border border-black/[0.08] text-[#6b7280] hover:bg-[#f6f7f9] transition-all"
+          title="Open tutorial guide"
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          Tutorial
+        </Link>
 
         {/* Data Ledger toggle */}
         <button
